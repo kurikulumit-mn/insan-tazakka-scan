@@ -1,0 +1,155 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Uji Kamera QR - Insan Tazakka</title>
+
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 480px;
+      margin: 24px auto;
+      padding: 16px;
+      background: #f5f8f5;
+      color: #26352d;
+    }
+
+    .kartu {
+      background: white;
+      padding: 22px;
+      border: 1px solid #dce5de;
+      border-radius: 16px;
+      text-align: center;
+    }
+
+    #reader {
+      width: 100%;
+      margin: 20px auto;
+    }
+
+    #pesan {
+      padding: 12px;
+      background: #f0f4f0;
+      border-radius: 8px;
+      overflow-wrap: anywhere;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    button {
+      padding: 12px 18px;
+      margin: 6px 3px;
+      border: 0;
+      border-radius: 8px;
+      background: #285b45;
+      color: white;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="kartu">
+    <h2>INSAN TAZAKKA</h2>
+    <p>Uji Kamera Pemindai QR</p>
+    <div id="reader"></div>
+
+    <button id="mulai" onclick="mulaiKamera()">
+      Aktifkan Kamera
+    </button>
+
+    <button onclick="hentikanKamera()">
+      Hentikan Kamera
+    </button>
+
+    <p id="pesan" role="status">
+      Kamera belum diaktifkan.
+    </p>
+  </main>
+
+  <script>
+    let scanner = null;
+    let aktif = false;
+    let memulai = false;
+
+    async function mulaiKamera() {
+      const pesan = document.getElementById("pesan");
+
+      if (aktif || memulai) return;
+
+      if (!window.isSecureContext) {
+        pesan.textContent =
+          "Halaman belum berada dalam konteks HTTPS yang aman.";
+        return;
+      }
+
+      if (!navigator.mediaDevices ||
+          !navigator.mediaDevices.getUserMedia) {
+        pesan.textContent =
+          "Browser tidak menyediakan akses kamera pada halaman ini.";
+        return;
+      }
+
+      if (typeof Html5Qrcode === "undefined") {
+        pesan.textContent =
+          "Pustaka pemindai belum termuat. Periksa koneksi internet.";
+        return;
+      }
+
+      memulai = true;
+      document.getElementById("mulai").disabled = true;
+      pesan.textContent = "Meminta akses kamera...";
+
+      try {
+        scanner = new Html5Qrcode("reader");
+
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 230, height: 230 } },
+          function (hasil) {
+            pesan.textContent =
+              "Berhasil membaca QR. Uji kamera berhasil.";
+          },
+          function () {}
+        );
+
+        aktif = true;
+        pesan.textContent =
+          "Kamera aktif. Arahkan ke QR Code untuk menguji pemindaian.";
+      } catch (error) {
+        pesan.textContent =
+          "Gagal mengaktifkan kamera: " +
+          (error && error.message
+            ? error.message
+            : String(error));
+
+        console.error("Kesalahan kamera:", error);
+      } finally {
+        memulai = false;
+        document.getElementById("mulai").disabled = false;
+      }
+    }
+
+    async function hentikanKamera() {
+      if (!scanner || !aktif) return;
+
+      try {
+        await scanner.stop();
+        scanner.clear();
+        scanner = null;
+        aktif = false;
+
+        document.getElementById("pesan").textContent =
+          "Kamera telah dihentikan.";
+      } catch (error) {
+        document.getElementById("pesan").textContent =
+          "Gagal menghentikan kamera: " + String(error);
+      }
+    }
+  </script>
+</body>
+</html>
