@@ -73,6 +73,40 @@
 
   <script>
     let scanner = null;
+    
+const URL_API_ABSENSI = "https://script.google.com/macros/s/AKfycbwG7CN55DW-wfCGvPsuI6BWQyrwYeAvvFGt6aNst0DSXRDKlKHm7gDVmsCrMK5wCtOkuw/exec";
+
+function validasiTokenQR(token) {
+  const pesan = document.getElementById("pesan");
+  pesan.textContent = "Memeriksa token QR siswa...";
+
+  const callback = "hasilValidasiQR";
+
+  window[callback] = function(data) {
+    pesan.textContent = data.status === "VALID"
+      ? "QR VALID. Token siswa terverifikasi."
+      : data.status === "DITOLAK"
+        ? "QR DITOLAK. Token tidak valid atau siswa tidak aktif."
+        : "Pemeriksaan gagal. Silakan coba kembali.";
+
+    delete window[callback];
+  };
+
+  const script = document.createElement("script");
+  script.src = URL_API_ABSENSI
+    + "?token=" + encodeURIComponent(token)
+    + "&callback=" + callback;
+
+  script.onerror = function() {
+    pesan.textContent = "Gagal menghubungi API absensi.";
+    delete window[callback];
+    script.remove();
+  };
+
+  document.body.appendChild(script);
+}
+
+    
     let aktif = false;
     let memulai = false;
 
@@ -111,9 +145,8 @@
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 230, height: 230 } },
           function (hasil) {
-            pesan.textContent =
-              "Berhasil membaca QR. Uji kamera berhasil.";
-          },
+  validasiTokenQR(hasil);
+},
           function () {}
         );
 
