@@ -77,19 +77,52 @@
 const URL_API_ABSENSI = "https://script.google.com/macros/s/AKfycbwG7CN55DW-wfCGvPsuI6BWQyrwYeAvvFGt6aNst0DSXRDKlKHm7gDVmsCrMK5wCtOkuw/exec";
 
 function validasiTokenQR(token) {
+ 
+const URL_WORKER_ABSENSI =
+  "https://absensi-insan-tazakka.kurikulum-it.workers.dev/";
+
+async function validasiTokenQR(token) {
   const pesan = document.getElementById("pesan");
-  pesan.textContent = "Memeriksa token QR siswa...";
 
-  const callback = "hasilValidasiQR";
+  const pin = window.prompt("Masukkan PIN petugas gerbang:");
 
-  window[callback] = function(data) {
-    pesan.textContent = data.status === "VALID"
-      ? "QR VALID. Token siswa terverifikasi."
-      : data.status === "DITOLAK"
-        ? "QR DITOLAK. Token tidak valid atau siswa tidak aktif."
-        : "Pemeriksaan gagal. Silakan coba kembali.";
+  if (pin === null || pin.trim() === "") {
+    pesan.textContent = "Absensi dibatalkan oleh petugas.";
+    return;
+  }
 
-    delete window[callback];
+  pesan.textContent = "Memproses absensi siswa...";
+
+  try {
+    const response = await fetch(URL_WORKER_ABSENSI, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        token: token,
+        pin: pin
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.status === "OK") {
+      pesan.textContent = "BERHASIL: Kehadiran siswa tercatat.";
+    } else if (data.status === "DUPLIKAT") {
+      pesan.textContent = "INFO: Siswa sudah tercatat hadir.";
+    } else if (data.status === "DITOLAK") {
+      pesan.textContent = "DITOLAK: " + data.pesan;
+    } else {
+      pesan.textContent = "GAGAL: " +
+        (data.pesan || "Absensi belum berhasil dicatat.");
+    }
+  } catch (error) {
+    pesan.textContent =
+      "Gagal menghubungi server. Periksa koneksi internet.";
+  }
+}
+
   };
 
   const script = document.createElement("script");
