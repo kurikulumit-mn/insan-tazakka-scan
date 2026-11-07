@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Uji Kamera QR - Insan Tazakka</title>
+  <title>Absensi QR - Insan Tazakka</title>
 
   <script src="https://unpkg.com/html5-qrcode"></script>
 
@@ -49,20 +49,26 @@
       color: white;
       cursor: pointer;
     }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 
 <body>
   <main class="kartu">
     <h2>INSAN TAZAKKA</h2>
-    <p>Uji Kamera Pemindai QR</p>
+    <p>Absensi QR Siswa</p>
+
     <div id="reader"></div>
 
     <button id="mulai" onclick="mulaiKamera()">
       Aktifkan Kamera
     </button>
 
-    <button onclick="hentikanKamera()">
+    <button id="henti" onclick="hentikanKamera()">
       Hentikan Kamera
     </button>
 
@@ -72,104 +78,38 @@
   </main>
 
   <script>
+    const URL_WORKER_ABSENSI =
+      "https://absensi-insan-tazakka.kurikulum-it.workers.dev/";
+
     let scanner = null;
-    
-const URL_API_ABSENSI = "https://script.google.com/macros/s/AKfycbwG7CN55DW-wfCGvPsuI6BWQyrwYeAvvFGt6aNst0DSXRDKlKHm7gDVmsCrMK5wCtOkuw/exec";
-
-function validasiTokenQR(token) {
- 
-const URL_WORKER_ABSENSI =
-  "https://absensi-insan-tazakka.kurikulum-it.workers.dev/";
-
-async function validasiTokenQR(token) {
-  const pesan = document.getElementById("pesan");
-
-  const pin = window.prompt("Masukkan PIN petugas gerbang:");
-
-  if (pin === null || pin.trim() === "") {
-    pesan.textContent = "Absensi dibatalkan oleh petugas.";
-    return;
-  }
-
-  pesan.textContent = "Memproses absensi siswa...";
-
-  try {
-    const response = await fetch(URL_WORKER_ABSENSI, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        token: token,
-        pin: pin
-      })
-    });
-
-    const data = await response.json();
-
-    if (data.status === "OK") {
-      pesan.textContent = "BERHASIL: Kehadiran siswa tercatat.";
-    } else if (data.status === "DUPLIKAT") {
-      pesan.textContent = "INFO: Siswa sudah tercatat hadir.";
-    } else if (data.status === "DITOLAK") {
-      pesan.textContent = "DITOLAK: " + data.pesan;
-    } else {
-      pesan.textContent = "GAGAL: " +
-        (data.pesan || "Absensi belum berhasil dicatat.");
-    }
-  } catch (error) {
-    pesan.textContent =
-      "Gagal menghubungi server. Periksa koneksi internet.";
-  }
-}
-
-  };
-
-  const script = document.createElement("script");
-  script.src = URL_API_ABSENSI
-    + "?token=" + encodeURIComponent(token)
-    + "&callback=" + callback;
-
-  script.onerror = function() {
-    pesan.textContent = "Gagal menghubungi API absensi.";
-    delete window[callback];
-    script.remove();
-  };
-
-  document.body.appendChild(script);
-}
-
-    
     let aktif = false;
     let memulai = false;
+    let sedangMemproses = false;
+
+    const pesan = document.getElementById("pesan");
+    const tombolMulai = document.getElementById("mulai");
+    const tombolHenti = document.getElementById("henti");
 
     async function mulaiKamera() {
-      const pesan = document.getElementById("pesan");
+      if (aktif || memulai || sedangMemproses) return;
 
-      if (aktif || memulai) return;
-
-      if (!window.isSecureContext) {
-        pesan.textContent =
-          "Halaman belum berada dalam konteks HTTPS yang aman.";
-        return;
-      }
-
-      if (!navigator.mediaDevices ||
+      if (!window.isSecureContext ||
+          !navigator.mediaDevices ||
           !navigator.mediaDevices.getUserMedia) {
         pesan.textContent =
-          "Browser tidak menyediakan akses kamera pada halaman ini.";
+          "Akses kamera tidak tersedia. Buka halaman HTTPS.";
         return;
       }
 
       if (typeof Html5Qrcode === "undefined") {
         pesan.textContent =
-          "Pustaka pemindai belum termuat. Periksa koneksi internet.";
+          "Pemindai belum termuat. Periksa koneksi internet.";
         return;
       }
 
       memulai = true;
-      document.getElementById("mulai").disabled = true;
-      pesan.textContent = "Meminta akses kamera...";
+      tombolMulai.disabled = true;
+      pesan.textContent = "Menyiapkan kamera...";
 
       try {
         scanner = new Html5Qrcode("reader");
@@ -177,43 +117,115 @@ async function validasiTokenQR(token) {
         await scanner.start(
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 230, height: 230 } },
-          function (hasil) {
-  validasiTokenQR(hasil);
-},
+          async function (hasil) {
+            if (sedangMemproses) return;
+
+            sedangMemproses = true;
+            tombolMulai.disabled = true;
+            pesan.textContent = "QR terbaca. Menyiapkan absensi...";
+
+            try {
+              if (scanner && aktif) {
+                await scanner.stop();
+                aktif = false;
+              }
+
+              await validasiTokenQR(hasil);
+            } catch (error) {
+              pesan.textContent =
+                "Terjadi kendala: " +
+                (error.message || String(error));
+            } finally {
+              sedangMemproses = false;
+              tombolMulai.disabled = false;
+            }
+          },
           function () {}
         );
 
         aktif = true;
         pesan.textContent =
-          "Kamera aktif. Arahkan ke QR Code untuk menguji pemindaian.";
+          "Kamera aktif. Arahkan kamera ke QR siswa.";
       } catch (error) {
         pesan.textContent =
           "Gagal mengaktifkan kamera: " +
-          (error && error.message
-            ? error.message
-            : String(error));
-
-        console.error("Kesalahan kamera:", error);
+          (error.message || String(error));
       } finally {
         memulai = false;
-        document.getElementById("mulai").disabled = false;
+        tombolMulai.disabled = false;
       }
     }
 
     async function hentikanKamera() {
-      if (!scanner || !aktif) return;
+      if (memulai) {
+        pesan.textContent =
+          "Kamera sedang disiapkan. Tunggu sebentar.";
+        return;
+      }
+
+      if (!scanner || !aktif) {
+        pesan.textContent = "Kamera sedang tidak aktif.";
+        return;
+      }
+
+      tombolHenti.disabled = true;
 
       try {
         await scanner.stop();
-        scanner.clear();
-        scanner = null;
         aktif = false;
-
-        document.getElementById("pesan").textContent =
-          "Kamera telah dihentikan.";
+        pesan.textContent = "Kamera telah dihentikan.";
       } catch (error) {
-        document.getElementById("pesan").textContent =
-          "Gagal menghentikan kamera: " + String(error);
+        pesan.textContent =
+          "Gagal menghentikan kamera: " +
+          (error.message || String(error));
+      } finally {
+        tombolHenti.disabled = false;
+      }
+    }
+
+    async function validasiTokenQR(token) {
+      const pin = window.prompt(
+        "Masukkan PIN petugas gerbang:"
+      );
+
+      if (pin === null || pin.trim() === "") {
+        pesan.textContent = "Absensi dibatalkan.";
+        return;
+      }
+
+      pesan.textContent = "Mengirim data absensi...";
+
+      try {
+        const response = await fetch(URL_WORKER_ABSENSI, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            token: token,
+            pin: pin
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.status === "OK") {
+          pesan.textContent =
+            "BERHASIL: Kehadiran siswa tercatat.";
+        } else if (data.status === "DUPLIKAT") {
+          pesan.textContent =
+            "INFO: Siswa sudah tercatat hadir.";
+        } else if (data.status === "DITOLAK") {
+          pesan.textContent =
+            "DITOLAK: " + (data.pesan || "Permintaan ditolak.");
+        } else {
+          pesan.textContent =
+            "GAGAL: " +
+            (data.pesan || "Absensi belum berhasil dicatat.");
+        }
+      } catch (error) {
+        pesan.textContent =
+          "Gagal menghubungi server. Periksa koneksi internet.";
       }
     }
   </script>
