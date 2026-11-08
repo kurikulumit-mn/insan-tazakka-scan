@@ -219,9 +219,7 @@
           pesan.textContent =
             "DITOLAK: " + (data.pesan || "Permintaan ditolak.");
         } else {
-          pesan.textContent =
-            "GAGAL: " +
-            (data.pesan || "Absensi belum berhasil dicatat.");
+         pesan.textContent = "GAGAL: " + JSON.stringify(data);
         }
       } catch (error) {
         pesan.textContent =
