@@ -5,7 +5,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Absensi QR - Insan Tazakka</title>
-
   <script src="https://unpkg.com/html5-qrcode"></script>
 
   <style>
@@ -14,23 +13,43 @@
       max-width: 480px;
       margin: 24px auto;
       padding: 16px;
-      background: #f5f8f5;
+      background: #f3f7f4;
       color: #26352d;
     }
-
     .kartu {
       background: white;
       padding: 22px;
       border: 1px solid #dce5de;
       border-radius: 16px;
       text-align: center;
+      box-shadow: 0 4px 18px #00000008;
     }
-
+    input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 12px;
+      margin: 7px 0;
+      border: 1px solid #ccd8cf;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+    button {
+      padding: 12px 16px;
+      margin: 6px 3px;
+      border: 0;
+      border-radius: 8px;
+      background: #285b45;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
     #reader {
       width: 100%;
-      margin: 20px auto;
+      margin: 18px auto;
     }
-
     #pesan {
       padding: 12px;
       background: #f0f4f0;
@@ -39,193 +58,274 @@
       text-align: left;
       font-size: 14px;
     }
-
-    button {
-      padding: 12px 18px;
-      margin: 6px 3px;
-      border: 0;
-      border-radius: 8px;
-      background: #285b45;
-      color: white;
-      cursor: pointer;
+    .sembunyi { display: none; }
+    .identitas {
+      background: #edf5ef;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 14px 0;
     }
-
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
+    .sekunder { background: #65736a; }
   </style>
 </head>
 
 <body>
-  <main class="kartu">
-    <h2>INSAN TAZAKKA</h2>
-    <p>Absensi QR Siswa</p>
+<main class="kartu">
+  <h2>INSAN TAZAKKA</h2>
+  <p>Sistem Absensi QR Siswa</p>
+
+  <section id="formLogin">
+    <h3>Login Guru</h3>
+    <input id="idGuru" type="text"
+      placeholder="ID Guru, contoh: G0004"
+      autocomplete="username">
+    <input id="pinGuru" type="password"
+      placeholder="PIN pribadi guru"
+      inputmode="numeric"
+      autocomplete="current-password">
+    <button id="btnLogin" onclick="loginGuru()">
+      Login
+    </button>
+  </section>
+
+  <section id="areaScan" class="sembunyi">
+    <div class="identitas">
+      <strong id="namaGuru"></strong>
+      <div id="idGuruAktif"></div>
+    </div>
 
     <div id="reader"></div>
 
     <button id="mulai" onclick="mulaiKamera()">
       Aktifkan Kamera
     </button>
-
-    <button id="henti" onclick="hentikanKamera()">
+    <button id="henti" class="sekunder"
+      onclick="hentikanKamera()">
       Hentikan Kamera
     </button>
+    <button class="sekunder" onclick="logoutGuru()">
+      Keluar
+    </button>
+  </section>
 
-    <p id="pesan" role="status">
-      Kamera belum diaktifkan.
-    </p>
-  </main>
+  <p id="pesan" role="status">
+    Silakan login menggunakan akun guru.
+  </p>
+</main>
 
-  <script>
-    const URL_WORKER_ABSENSI =
-      "https://absensi-insan-tazakka.kurikulum-it.workers.dev/";
+<script>
+  const URL_WORKER =
+    "https://absensi-insan-tazakka.kurikulum-it.workers.dev/";
 
-    let scanner = null;
-    let aktif = false;
-    let memulai = false;
-    let sedangMemproses = false;
+  let sessionToken = "";
+  let scanner = null;
+  let aktif = false;
+  let memulai = false;
+  let sedangMemproses = false;
+  let terakhirQR = "";
+  let waktuQR = 0;
 
-    const pesan = document.getElementById("pesan");
-    const tombolMulai = document.getElementById("mulai");
-    const tombolHenti = document.getElementById("henti");
+  const $ = id => document.getElementById(id);
+  const pesan = $("pesan");
 
-    async function mulaiKamera() {
-      if (aktif || memulai || sedangMemproses) return;
+  function tampilPesan(teks) {
+    pesan.textContent = teks;
+  }
 
-      if (!window.isSecureContext ||
-          !navigator.mediaDevices ||
-          !navigator.mediaDevices.getUserMedia) {
-        pesan.textContent =
-          "Akses kamera tidak tersedia. Buka halaman HTTPS.";
-        return;
-      }
+  async function kirim(data) {
+    const response = await fetch(URL_WORKER, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
 
-      if (typeof Html5Qrcode === "undefined") {
-        pesan.textContent =
-          "Pemindai belum termuat. Periksa koneksi internet.";
-        return;
-      }
+    const hasil = await response.json();
 
-      memulai = true;
-      tombolMulai.disabled = true;
-      pesan.textContent = "Menyiapkan kamera...";
-
-      try {
-        scanner = new Html5Qrcode("reader");
-
-        await scanner.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 230, height: 230 } },
-          async function (hasil) {
-            if (sedangMemproses) return;
-
-            sedangMemproses = true;
-            tombolMulai.disabled = true;
-            pesan.textContent = "QR terbaca. Menyiapkan absensi...";
-
-            try {
-              if (scanner && aktif) {
-                await scanner.stop();
-                aktif = false;
-              }
-
-              await validasiTokenQR(hasil);
-            } catch (error) {
-              pesan.textContent =
-                "Terjadi kendala: " +
-                (error.message || String(error));
-            } finally {
-              sedangMemproses = false;
-              tombolMulai.disabled = false;
-            }
-          },
-          function () {}
-        );
-
-        aktif = true;
-        pesan.textContent =
-          "Kamera aktif. Arahkan kamera ke QR siswa.";
-      } catch (error) {
-        pesan.textContent =
-          "Gagal mengaktifkan kamera: " +
-          (error.message || String(error));
-      } finally {
-        memulai = false;
-        tombolMulai.disabled = false;
-      }
+    if (!response.ok && hasil.status === undefined) {
+      throw new Error("Server tidak dapat memproses permintaan.");
     }
 
-    async function hentikanKamera() {
-      if (memulai) {
-        pesan.textContent =
-          "Kamera sedang disiapkan. Tunggu sebentar.";
-        return;
-      }
+    return hasil;
+  }
 
-      if (!scanner || !aktif) {
-        pesan.textContent = "Kamera sedang tidak aktif.";
-        return;
-      }
+  async function loginGuru() {
+    if ($("btnLogin").disabled) return;
 
-      tombolHenti.disabled = true;
+    const idGuru = $("idGuru").value.trim();
+    const pin = $("pinGuru").value;
 
-      try {
-        await scanner.stop();
-        aktif = false;
-        pesan.textContent = "Kamera telah dihentikan.";
-      } catch (error) {
-        pesan.textContent =
-          "Gagal menghentikan kamera: " +
-          (error.message || String(error));
-      } finally {
-        tombolHenti.disabled = false;
-      }
+    if (!idGuru || !pin) {
+      tampilPesan("Masukkan ID Guru dan PIN terlebih dahulu.");
+      return;
     }
 
-    async function validasiTokenQR(token) {
-      const pin = window.prompt(
-        "Masukkan PIN petugas gerbang:"
+    $("btnLogin").disabled = true;
+    tampilPesan("Memeriksa akun guru...");
+
+    try {
+      const hasil = await kirim({
+        action: "login_guru",
+        idGuru,
+        pin
+      });
+
+      if (hasil.status !== "OK" || !hasil.sessionToken) {
+        tampilPesan(hasil.pesan || "Login gagal.");
+        return;
+      }
+
+      sessionToken = hasil.sessionToken;
+      $("namaGuru").textContent = hasil.nama || "Guru";
+      $("idGuruAktif").textContent = "ID: " + hasil.idGuru;
+      $("pinGuru").value = "";
+      $("formLogin").classList.add("sembunyi");
+      $("areaScan").classList.remove("sembunyi");
+
+      tampilPesan("Login berhasil. Tekan Aktifkan Kamera untuk mulai scan.");
+    } catch (error) {
+      tampilPesan("Gagal menghubungi server. Periksa koneksi internet.");
+    } finally {
+      $("btnLogin").disabled = false;
+    }
+  }
+
+  async function mulaiKamera() {
+    if (aktif || memulai || sedangMemproses) return;
+
+    if (!sessionToken) {
+      tampilPesan("Sesi login tidak tersedia. Silakan login kembali.");
+      return;
+    }
+
+    if (!window.isSecureContext ||
+        !navigator.mediaDevices?.getUserMedia) {
+      tampilPesan("Kamera memerlukan akses HTTPS.");
+      return;
+    }
+
+    if (typeof Html5Qrcode === "undefined") {
+      tampilPesan("Pemindai QR belum termuat. Periksa koneksi.");
+      return;
+    }
+
+    memulai = true;
+    $("mulai").disabled = true;
+    tampilPesan("Menyiapkan kamera...");
+
+    try {
+      scanner = new Html5Qrcode("reader");
+
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 230, height: 230 } },
+        async hasil => {
+          if (sedangMemproses || !sessionToken) return;
+
+          const sekarang = Date.now();
+          if (hasil === terakhirQR && sekarang - waktuQR < 2500) return;
+
+          terakhirQR = hasil;
+          waktuQR = sekarang;
+          sedangMemproses = true;
+
+          try {
+            await prosesAbsensi(hasil);
+          } finally {
+            sedangMemproses = false;
+          }
+        },
+        () => {}
       );
 
-      if (pin === null || pin.trim() === "") {
-        pesan.textContent = "Absensi dibatalkan.";
-        return;
-      }
-
-      pesan.textContent = "Mengirim data absensi...";
-
-      try {
-        const response = await fetch(URL_WORKER_ABSENSI, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            token: token,
-            pin: pin
-          })
-        });
-
-        const data = await response.json();
-
-        if (data.status === "OK") {
-          pesan.textContent =
-            "BERHASIL: Kehadiran siswa tercatat.";
-        } else if (data.status === "DUPLIKAT") {
-          pesan.textContent =
-            "INFO: Siswa sudah tercatat hadir.";
-        } else if (data.status === "DITOLAK") {
-          pesan.textContent =
-            "DITOLAK: " + (data.pesan || "Permintaan ditolak.");
-        } else {
-         pesan.textContent = "GAGAL: " + JSON.stringify(data);
-        }
-      } catch (error) {
-        pesan.textContent =
-          "Gagal menghubungi server. Periksa koneksi internet.";
-      }
+      aktif = true;
+      tampilPesan("Kamera aktif. Arahkan ke QR siswa.");
+    } catch (error) {
+      aktif = false;
+      tampilPesan("Kamera gagal diaktifkan. Periksa izin kamera.");
+    } finally {
+      memulai = false;
+      $("mulai").disabled = false;
     }
-  </script>
+  }
+
+  async function prosesAbsensi(tokenQR) {
+    tampilPesan("QR terbaca. Memproses absensi...");
+
+    try {
+      const hasil = await kirim({
+        action: "absensi_pagi",
+        token: tokenQR,
+        sessionToken
+      });
+
+      if (hasil.status === "OK") {
+        tampilPesan("BERHASIL: " + (hasil.pesan || "Absensi tercatat."));
+      } else if (hasil.status === "DUPLIKAT") {
+        tampilPesan("INFO: Siswa sudah tercatat hadir.");
+      } else if (hasil.status === "DITOLAK") {
+        tampilPesan("DITOLAK: " + (hasil.pesan || "Permintaan ditolak."));
+        if ((hasil.pesan || "").toLowerCase().includes("sesi")) {
+          await logoutGuru();
+        }
+      } else {
+        tampilPesan("GAGAL: " + (hasil.pesan || "Absensi tidak berhasil."));
+      }
+    } catch (error) {
+      tampilPesan("Gagal menghubungi server. Periksa koneksi internet.");
+    }
+  }
+
+  async function hentikanKamera() {
+    if (memulai) {
+      tampilPesan("Kamera sedang disiapkan. Tunggu sebentar.");
+      return;
+    }
+
+    if (!scanner || !aktif) {
+      tampilPesan("Kamera sedang tidak aktif.");
+      return;
+    }
+
+    $("henti").disabled = true;
+
+    try {
+      await scanner.stop();
+      aktif = false;
+      tampilPesan("Kamera dihentikan. Tekan Aktifkan Kamera untuk melanjutkan.");
+    } catch (error) {
+      tampilPesan("Kamera belum dapat dihentikan. Coba kembali.");
+    } finally {
+      $("henti").disabled = false;
+    }
+  }
+
+  async function logoutGuru() {
+    if (aktif && scanner) {
+      try {
+        await scanner.stop();
+      } catch (error) {}
+    }
+
+    if (scanner) {
+      try {
+        await scanner.clear();
+      } catch (error) {}
+    }
+
+    scanner = null;
+    aktif = false;
+    memulai = false;
+    sedangMemproses = false;
+    sessionToken = "";
+    terakhirQR = "";
+    waktuQR = 0;
+
+    $("idGuru").value = "";
+    $("pinGuru").value = "";
+    $("areaScan").classList.add("sembunyi");
+    $("formLogin").classList.remove("sembunyi");
+    tampilPesan("Anda telah keluar. Silakan login kembali.");
+  }
+</script>
 </body>
 </html>
