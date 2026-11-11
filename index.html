@@ -24,7 +24,7 @@
       text-align: center;
       box-shadow: 0 4px 18px #00000008;
     }
-    input {
+    input, select {
       box-sizing: border-box;
       width: 100%;
       padding: 12px;
@@ -32,6 +32,8 @@
       border: 1px solid #ccd8cf;
       border-radius: 8px;
       font-size: 16px;
+      background: white;
+      color: #26352d;
     }
     button {
       padding: 12px 16px;
@@ -76,13 +78,16 @@
 
   <section id="formLogin">
     <h3>Login Guru</h3>
-    <input id="idGuru" type="text"
-      placeholder="ID Guru, contoh: G0004"
-      autocomplete="username">
+
+    <select id="pilihGuru" autocomplete="username">
+      <option value="">Memuat daftar guru...</option>
+    </select>
+
     <input id="pinGuru" type="password"
       placeholder="PIN pribadi guru"
       inputmode="numeric"
       autocomplete="current-password">
+
     <button id="btnLogin" onclick="loginGuru()">
       Login
     </button>
@@ -109,7 +114,7 @@
   </section>
 
   <p id="pesan" role="status">
-    Silakan login menggunakan akun guru.
+    Silakan pilih nama guru dan masukkan PIN.
   </p>
 </main>
 
@@ -132,6 +137,53 @@
     pesan.textContent = teks;
   }
 
+  async function ambilDaftarGuru() {
+    const pilihan = $("pilihGuru");
+    pilihan.disabled = true;
+    pilihan.innerHTML =
+      '<option value="">Memuat daftar guru...</option>';
+
+    try {
+      const response = await fetch(
+        URL_WORKER + "?action=daftar_guru"
+      );
+
+      const hasil = await response.json();
+
+      if (hasil.status !== "OK" || !Array.isArray(hasil.data)) {
+        throw new Error("Daftar guru tidak tersedia.");
+      }
+
+      pilihan.innerHTML =
+        '<option value="">-- Pilih Nama Guru --</option>';
+
+      hasil.data.forEach(guru => {
+        if (!guru.idGuru || !guru.nama) return;
+
+        const opsi = document.createElement("option");
+        opsi.value = guru.idGuru;
+        opsi.textContent = guru.nama;
+        pilihan.appendChild(opsi);
+      });
+
+      if (pilihan.options.length <= 1) {
+        pilihan.innerHTML =
+          '<option value="">Belum ada guru aktif</option>';
+        tampilPesan("Daftar guru kosong. Periksa data guru.");
+      } else {
+        tampilPesan("Silakan pilih nama guru dan masukkan PIN.");
+      }
+    } catch (error) {
+      pilihan.innerHTML =
+        '<option value="">Gagal memuat daftar guru</option>';
+      tampilPesan(
+        "Daftar guru gagal dimuat. Periksa endpoint daftar_guru pada server."
+      );
+    } finally {
+      pilihan.disabled = false;
+    }
+  }
+
   async function kirim(data) {
     const response = await fetch(URL_WORKER, {
       method: "POST",
@@ -151,11 +203,11 @@
   async function loginGuru() {
     if ($("btnLogin").disabled) return;
 
-    const idGuru = $("idGuru").value.trim();
+    const idGuru = $("pilihGuru").value;
     const pin = $("pinGuru").value;
 
     if (!idGuru || !pin) {
-      tampilPesan("Masukkan ID Guru dan PIN terlebih dahulu.");
+      tampilPesan("Pilih nama guru dan masukkan PIN terlebih dahulu.");
       return;
     }
 
@@ -165,8 +217,8 @@
     try {
       const hasil = await kirim({
         action: "login_guru",
-        idGuru,
-        pin
+        idGuru: idGuru,
+        pin: pin
       });
 
       if (hasil.status !== "OK" || !hasil.sessionToken) {
@@ -175,13 +227,17 @@
       }
 
       sessionToken = hasil.sessionToken;
-      $("namaGuru").textContent = hasil.nama || "Guru";
-      $("idGuruAktif").textContent = "ID: " + hasil.idGuru;
+      $("namaGuru").textContent =
+        hasil.nama || $("pilihGuru").selectedOptions[0].textContent;
+      $("idGuruAktif").textContent = "ID: " + (hasil.idGuru || idGuru);
       $("pinGuru").value = "";
+
       $("formLogin").classList.add("sembunyi");
       $("areaScan").classList.remove("sembunyi");
 
-      tampilPesan("Login berhasil. Tekan Aktifkan Kamera untuk mulai scan.");
+      tampilPesan(
+        "Login berhasil. Tekan Aktifkan Kamera untuk mulai scan."
+      );
     } catch (error) {
       tampilPesan("Gagal menghubungi server. Periksa koneksi internet.");
     } finally {
@@ -222,7 +278,8 @@
           if (sedangMemproses || !sessionToken) return;
 
           const sekarang = Date.now();
-          if (hasil === terakhirQR && sekarang - waktuQR < 2500) return;
+          if (hasil === terakhirQR &&
+              sekarang - waktuQR < 2500) return;
 
           terakhirQR = hasil;
           waktuQR = sekarang;
@@ -259,16 +316,20 @@
       });
 
       if (hasil.status === "OK") {
-        tampilPesan("BERHASIL: " + (hasil.pesan || "Absensi tercatat."));
+        tampilPesan("BERHASIL: " +
+          (hasil.pesan || "Absensi tercatat."));
       } else if (hasil.status === "DUPLIKAT") {
         tampilPesan("INFO: Siswa sudah tercatat hadir.");
       } else if (hasil.status === "DITOLAK") {
-        tampilPesan("DITOLAK: " + (hasil.pesan || "Permintaan ditolak."));
+        tampilPesan("DITOLAK: " +
+          (hasil.pesan || "Permintaan ditolak."));
+
         if ((hasil.pesan || "").toLowerCase().includes("sesi")) {
           await logoutGuru();
         }
       } else {
-        tampilPesan("GAGAL: " + (hasil.pesan || "Absensi tidak berhasil."));
+        tampilPesan("GAGAL: " +
+          (hasil.pesan || "Absensi tidak berhasil."));
       }
     } catch (error) {
       tampilPesan("Gagal menghubungi server. Periksa koneksi internet.");
@@ -291,7 +352,9 @@
     try {
       await scanner.stop();
       aktif = false;
-      tampilPesan("Kamera dihentikan. Tekan Aktifkan Kamera untuk melanjutkan.");
+      tampilPesan(
+        "Kamera dihentikan. Tekan Aktifkan Kamera untuk melanjutkan."
+      );
     } catch (error) {
       tampilPesan("Kamera belum dapat dihentikan. Coba kembali.");
     } finally {
@@ -320,12 +383,14 @@
     terakhirQR = "";
     waktuQR = 0;
 
-    $("idGuru").value = "";
     $("pinGuru").value = "";
+    $("pilihGuru").value = "";
     $("areaScan").classList.add("sembunyi");
     $("formLogin").classList.remove("sembunyi");
     tampilPesan("Anda telah keluar. Silakan login kembali.");
   }
+
+  ambilDaftarGuru();
 </script>
 </body>
 </html>
